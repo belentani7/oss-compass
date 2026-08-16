@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "oss-compass"
+version = "0.1.0"
+description = "Universal validation envelopes with auditable 2-of-3 node confirmation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Belentani" }]
+keywords = ["validation", "ai-safety", "audit", "distributed-systems", "open-source"]
+classifiers = ["Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "License :: OSI Approved :: MIT License"]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+oss-compass = "oss_compass.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oss_compass"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
