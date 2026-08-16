@@ -27,3 +27,40 @@ def test_requires_exactly_three_nodes():
     envelope = validate({}, subject="demo")
     with pytest.raises(ValueError):
         confirm_three_nodes(envelope, {"node-a": True, "node-b": True})
+
+
+from oss_compass import audit_change
+
+
+def _all_levels(value: bool = True):
+    return {"integrity": value, "policy": value, "risk": value}
+
+
+def test_change_audit_is_ten_out_of_ten_when_all_nine_checks_pass():
+    audit = audit_change(
+        "change-001",
+        {"action": "deploy"},
+        {"node-a": _all_levels(), "node-b": _all_levels(), "node-c": _all_levels()},
+    )
+    assert audit.score == 10.0
+    assert audit.accepted
+    assert audit.approved_nodes == ("node-a", "node-b", "node-c")
+
+
+def test_change_audit_rejects_when_one_level_fails():
+    node_c = _all_levels()
+    node_c["risk"] = False
+    audit = audit_change(
+        "change-002",
+        {"action": "delete"},
+        {"node-a": _all_levels(), "node-b": _all_levels(), "node-c": node_c},
+    )
+    assert audit.score < 10.0
+    assert not audit.accepted
+
+
+def test_change_audit_requires_three_nodes_and_three_levels():
+    with pytest.raises(ValueError):
+        audit_change("change-003", {}, {"node-a": _all_levels(), "node-b": _all_levels()})
+    with pytest.raises(ValueError):
+        audit_change("change-004", {}, {"node-a": {"integrity": True}, "node-b": _all_levels(), "node-c": _all_levels()})

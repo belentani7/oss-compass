@@ -93,3 +93,28 @@ Consulta [CONTRIBUTING.md](CONTRIBUTING.md), abre una issue reproducible o propo
 ## Licencia
 
 Publicado bajo la licencia [MIT](LICENSE).
+
+## Auditoría 3×3 por cambio
+
+Cada cambio puede auditarse con `audit_change`. El protocolo exige exactamente tres nodos (`node-a`, `node-b` y `node-c`) y tres niveles por nodo: **integridad**, **política** y **riesgo**. En total se verifican nueve controles independientes.
+
+La puntuación global se normaliza a una escala de 0 a 10. Un cambio recibe **10/10 únicamente cuando los nueve controles pasan**. Además, el cambio solo queda aprobado cuando al menos dos nodos alcanzan el resultado completo, aplicando un quórum fijo de 2-de-3.
+
+```python
+from oss_compass import audit_change
+
+result = audit_change(
+    "change-042",
+    {"action": "release", "version": "0.2.0"},
+    {
+        "node-a": {"integrity": True, "policy": True, "risk": True},
+        "node-b": {"integrity": True, "policy": True, "risk": True},
+        "node-c": {"integrity": True, "policy": True, "risk": True},
+    },
+)
+
+assert result.score == 10.0
+assert result.accepted is True
+```
+
+Si un solo nivel falla, la puntuación cae por debajo de 10/10 y el cambio no se marca como aprobado. El resultado incluye el hash del cambio, el estado de cada nodo, la evidencia por nivel y los nodos que alcanzaron aprobación completa.

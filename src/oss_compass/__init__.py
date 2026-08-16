@@ -1,4 +1,9 @@
 from .pvcu import (
+    AUDIT_LEVELS,
+    ChangeAudit,
+    LevelAudit,
+    NodeAudit,
+    audit_change,
     ConfirmationReceipt,
     NodeConfirmation,
     ValidationEnvelope,
@@ -10,6 +15,11 @@ from .pvcu import (
 )
 
 __all__ = [
+    "AUDIT_LEVELS",
+    "ChangeAudit",
+    "LevelAudit",
+    "NodeAudit",
+    "audit_change",
     "ConfirmationReceipt",
     "NodeConfirmation",
     "ValidationEnvelope",

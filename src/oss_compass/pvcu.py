@@ -100,3 +100,91 @@ def confirm_three_nodes(envelope: ValidationEnvelope, nodes: dict[str, bool], *,
         for node_id, accepted in sorted(nodes.items())
     )
     return ConfirmationReceipt(envelope.envelope_id, confirmations, quorum)
+
+
+AUDIT_LEVELS = ("integrity", "policy", "risk")
+
+
+@dataclass(frozen=True)
+class LevelAudit:
+    level: str
+    passed: bool
+    score: int
+    evidence: str = ""
+
+
+@dataclass(frozen=True)
+class NodeAudit:
+    node_id: str
+    levels: tuple[LevelAudit, ...]
+
+    @property
+    def passed(self) -> bool:
+        return len(self.levels) == 3 and all(level.passed for level in self.levels)
+
+    @property
+    def score(self) -> float:
+        return round(sum(level.score for level in self.levels) / 3, 2)
+
+
+@dataclass(frozen=True)
+class ChangeAudit:
+    change_id: str
+    change_hash: str
+    nodes: tuple[NodeAudit, ...]
+    quorum: int = 2
+
+    @property
+    def approved_nodes(self) -> tuple[str, ...]:
+        return tuple(node.node_id for node in self.nodes if node.passed)
+
+    @property
+    def accepted(self) -> bool:
+        return len(self.approved_nodes) >= self.quorum and self.score == 10.0
+
+    @property
+    def score(self) -> float:
+        """Global score: nine checks (3 nodes x 3 levels), normalized to 0-10."""
+        checks = [level.passed for node in self.nodes for level in node.levels]
+        return round(sum(checks) / 9 * 10, 2) if len(checks) == 9 else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "change_id": self.change_id,
+            "change_hash": self.change_hash,
+            "quorum": self.quorum,
+            "score": self.score,
+            "accepted": self.accepted,
+            "approved_nodes": list(self.approved_nodes),
+            "nodes": [
+                {"node_id": node.node_id, "score": node.score, "passed": node.passed,
+                 "levels": [asdict(level) for level in node.levels]}
+                for node in self.nodes
+            ],
+        }
+
+
+def audit_change(change_id: str, change: Any, node_levels: dict[str, dict[str, bool]], *, quorum: int = 2) -> ChangeAudit:
+    """Audit one change across exactly 3 nodes and exactly 3 levels.
+
+    A change is 10/10 only when all nine node-level checks pass. It is accepted
+    only when the configured quorum (2 by default) also approves all levels.
+    """
+    if len(node_levels) != 3:
+        raise ValueError("exactly three nodes are required per change")
+    if set(node_levels) != {"node-a", "node-b", "node-c"}:
+        raise ValueError("nodes must be node-a, node-b and node-c")
+    if quorum != 2:
+        raise ValueError("the 3-node audit requires a 2-of-3 quorum")
+    audits = []
+    change_hash = sha256_payload({"change_id": change_id, "change": change})
+    for node_id in sorted(node_levels):
+        levels = node_levels[node_id]
+        if set(levels) != set(AUDIT_LEVELS):
+            raise ValueError("every node must report integrity, policy and risk")
+        audits.append(NodeAudit(node_id, tuple(
+            LevelAudit(level, bool(levels[level]), 10 if levels[level] else 0,
+                       "verified" if levels[level] else "failed")
+            for level in AUDIT_LEVELS
+        )))
+    return ChangeAudit(change_id, change_hash, tuple(audits), quorum)
