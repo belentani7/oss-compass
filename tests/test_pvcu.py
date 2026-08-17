@@ -64,3 +64,26 @@ def test_change_audit_requires_three_nodes_and_three_levels():
         audit_change("change-003", {}, {"node-a": _all_levels(), "node-b": _all_levels()})
     with pytest.raises(ValueError):
         audit_change("change-004", {}, {"node-a": {"integrity": True}, "node-b": _all_levels(), "node-c": _all_levels()})
+
+
+from oss_compass import audit_code_lines
+
+
+def _line_matrix(lines, value=True):
+    return {node: {number: _all_levels(value) for number in range(1, lines + 1)} for node in ("node-a", "node-b", "node-c")}
+
+
+def test_every_line_must_reach_ten_out_of_ten():
+    audit = audit_code_lines("change-005", ["x = 1", "y = 2"], _line_matrix(2))
+    assert audit.score == 10.0
+    assert audit.passed
+    assert all(line.score == 10.0 for line in audit.lines)
+
+
+def test_one_failed_line_blocks_the_whole_change():
+    matrix = _line_matrix(3)
+    matrix["node-b"][2]["risk"] = False
+    audit = audit_code_lines("change-006", ["x = 1", "dangerous()", "return x"], matrix)
+    assert audit.lines[1].score < 10.0
+    assert audit.score < 10.0
+    assert not audit.passed

@@ -188,3 +188,86 @@ def audit_change(change_id: str, change: Any, node_levels: dict[str, dict[str, b
             for level in AUDIT_LEVELS
         )))
     return ChangeAudit(change_id, change_hash, tuple(audits), quorum)
+
+
+@dataclass(frozen=True)
+class LineAudit:
+    line_number: int
+    content_hash: str
+    node_audits: tuple[NodeAudit, ...]
+
+    @property
+    def score(self) -> float:
+        checks = [level.passed for node in self.node_audits for level in node.levels]
+        return round(sum(checks) / 9 * 10, 2) if len(checks) == 9 else 0.0
+
+    @property
+    def passed(self) -> bool:
+        return self.score == 10.0 and all(node.passed for node in self.node_audits)
+
+
+@dataclass(frozen=True)
+class StrictCodeAudit:
+    change_id: str
+    lines: tuple[LineAudit, ...]
+
+    @property
+    def score(self) -> float:
+        if not self.lines:
+            return 0.0
+        return round(sum(line.score for line in self.lines) / len(self.lines), 2)
+
+    @property
+    def passed(self) -> bool:
+        """Hard gate: one failed line rejects the complete code change."""
+        return bool(self.lines) and self.score == 10.0 and all(line.passed for line in self.lines)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "change_id": self.change_id,
+            "score": self.score,
+            "passed": self.passed,
+            "line_count": len(self.lines),
+            "lines": [
+                {
+                    "line_number": line.line_number,
+                    "content_hash": line.content_hash,
+                    "score": line.score,
+                    "passed": line.passed,
+                    "nodes": [
+                        {"node_id": node.node_id, "score": node.score, "passed": node.passed,
+                         "levels": [asdict(level) for level in node.levels]}
+                        for node in line.node_audits
+                    ],
+                }
+                for line in self.lines
+            ],
+        }
+
+
+def audit_code_lines(change_id: str, lines: Iterable[str], node_levels: dict[str, dict[int, dict[str, bool]]]) -> StrictCodeAudit:
+    """Apply a strict 10/10 gate to every changed line.
+
+    `node_levels` maps each of the three nodes to line number -> three booleans.
+    All three nodes and all three levels must pass for every line; otherwise the
+    complete change is rejected. This is intentionally stricter than quorum.
+    """
+    if set(node_levels) != {"node-a", "node-b", "node-c"}:
+        raise ValueError("exactly node-a, node-b and node-c are required")
+    materialized = tuple(lines)
+    if not materialized:
+        raise ValueError("at least one changed line is required")
+    line_audits = []
+    for line_number, content in enumerate(materialized, start=1):
+        audits = []
+        for node_id in ("node-a", "node-b", "node-c"):
+            levels = node_levels[node_id].get(line_number)
+            if levels is None or set(levels) != set(AUDIT_LEVELS):
+                raise ValueError(f"missing three-level audit for line {line_number} on {node_id}")
+            audits.append(NodeAudit(node_id, tuple(
+                LevelAudit(level, bool(levels[level]), 10 if levels[level] else 0,
+                           "verified" if levels[level] else "failed")
+                for level in AUDIT_LEVELS
+            )))
+        line_audits.append(LineAudit(line_number, sha256_payload(content), tuple(audits)))
+    return StrictCodeAudit(change_id, tuple(line_audits))

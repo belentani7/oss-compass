@@ -118,3 +118,27 @@ assert result.accepted is True
 ```
 
 Si un solo nivel falla, la puntuación cae por debajo de 10/10 y el cambio no se marca como aprobado. El resultado incluye el hash del cambio, el estado de cada nodo, la evidencia por nivel y los nodos que alcanzaron aprobación completa.
+
+## Gate estricto de código línea por línea
+
+Para cambios de código, `audit_code_lines` aplica una regla más estricta que el quórum normal. Cada línea modificada debe ser revisada por `node-a`, `node-b` y `node-c` en los tres niveles de **integridad**, **política** y **riesgo**. Cada control vale 10 puntos cuando pasa y 0 cuando falla.
+
+El cambio completo solo pasa si **todas las líneas obtienen 10/10**. Una única línea con un nivel fallido rechaza todo el cambio, aunque las demás líneas estén aprobadas. La auditoría también conserva el hash de cada línea para que el resultado pueda asociarse al contenido exacto revisado.
+
+```python
+from oss_compass import audit_code_lines
+
+lines = ["x = 1", "return x"]
+checks = {
+    node: {
+        1: {"integrity": True, "policy": True, "risk": True},
+        2: {"integrity": True, "policy": True, "risk": True},
+    }
+    for node in ("node-a", "node-b", "node-c")
+}
+result = audit_code_lines("change-100", lines, checks)
+assert result.score == 10.0
+assert result.passed is True
+```
+
+Este mecanismo no marca automáticamente todas las líneas como aprobadas: requiere que los resultados de los tres nodos sean proporcionados de forma explícita. Por ello, una línea sin auditoría completa tampoco pasa.
