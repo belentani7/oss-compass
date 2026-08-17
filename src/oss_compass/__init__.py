@@ -1,5 +1,6 @@
 from .pvcu import (
     AUDIT_LEVELS,
+    MAX_AUDIT_LINES,
     ChangeAudit,
     LevelAudit,
     NodeAudit,
@@ -19,6 +20,7 @@ from .pvcu import (
 
 __all__ = [
     "AUDIT_LEVELS",
+    "MAX_AUDIT_LINES",
     "ChangeAudit",
     "LevelAudit",
     "NodeAudit",

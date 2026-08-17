@@ -87,3 +87,23 @@ def test_one_failed_line_blocks_the_whole_change():
     assert audit.lines[1].score < 10.0
     assert audit.score < 10.0
     assert not audit.passed
+
+
+from oss_compass import MAX_AUDIT_LINES
+
+
+def test_real_five_thousand_line_audit_reaches_ten_out_of_ten():
+    lines = [f"value_{number} = {number}" for number in range(1, MAX_AUDIT_LINES + 1)]
+    matrix = _line_matrix(MAX_AUDIT_LINES)
+    audit = audit_code_lines("change-5000", lines, matrix)
+    assert len(audit.lines) == 5000
+    assert audit.score == 10.0
+    assert audit.passed
+    assert all(line.score == 10.0 for line in audit.lines)
+
+
+def test_audit_rejects_more_than_five_thousand_lines():
+    lines = ["pass"] * (MAX_AUDIT_LINES + 1)
+    matrix = _line_matrix(MAX_AUDIT_LINES + 1)
+    with pytest.raises(ValueError, match="5000"):
+        audit_code_lines("change-too-large", lines, matrix)

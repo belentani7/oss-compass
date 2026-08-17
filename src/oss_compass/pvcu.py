@@ -103,6 +103,7 @@ def confirm_three_nodes(envelope: ValidationEnvelope, nodes: dict[str, bool], *,
 
 
 AUDIT_LEVELS = ("integrity", "policy", "risk")
+MAX_AUDIT_LINES = 5000
 
 
 @dataclass(frozen=True)
@@ -257,6 +258,8 @@ def audit_code_lines(change_id: str, lines: Iterable[str], node_levels: dict[str
     materialized = tuple(lines)
     if not materialized:
         raise ValueError("at least one changed line is required")
+    if len(materialized) > MAX_AUDIT_LINES:
+        raise ValueError(f"a single audit is limited to {MAX_AUDIT_LINES} changed lines")
     line_audits = []
     for line_number, content in enumerate(materialized, start=1):
         audits = []
