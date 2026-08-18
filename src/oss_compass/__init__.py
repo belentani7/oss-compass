@@ -1,3 +1,4 @@
+from .network import NodeConfig, NodeServer, confirm_over_network
 from .pvcu import (
     AUDIT_LEVELS,
     MAX_AUDIT_LINES,
@@ -36,4 +37,7 @@ __all__ = [
     "required_fields",
     "sha256_payload",
     "validate",
+    "NodeConfig",
+    "NodeServer",
+    "confirm_over_network",
 ]

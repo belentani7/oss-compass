@@ -11,13 +11,15 @@
 
 ## Qué incluye esta versión
 
-La primera versión implementa un núcleo pequeño y componible. Calcula un hash estable del payload, ejecuta reglas declarativas, genera un `ValidationEnvelope` con resultados y permite confirmar el sobre con **tres nodos independientes**, usando por defecto un quórum de **2 de 3**. La confirmación es una barrera de decisión; no sustituye la autenticación de red, la firma criptográfica con claves gestionadas ni la revisión humana en operaciones de alto riesgo.
+La primera versión implementa un núcleo pequeño y componible. Calcula un hash estable del payload, ejecuta reglas declarativas, genera un `ValidationEnvelope` con resultados y permite confirmar el sobre con **tres nodos independientes**, usando por defecto un quórum de **2 de 3**. La confirmación de red usa HTTP, HMAC-SHA256, nonce anti-replay, ventana de tiempo, verificación de identidad del nodo y firma de respuesta. La confirmación es una barrera de decisión; no sustituye la gestión externa de secretos, el transporte TLS en producción ni la revisión humana en operaciones de alto riesgo.
 
 | Componente | Responsabilidad |
 |---|---|
 | `ValidationEnvelope` | Identifica el sujeto, perfil, hash del payload, reglas y resultados. |
 | `ValidationResult` | Expresa código PVC, esfera, estado y mensaje accionable. |
-| `confirm_three_nodes` | Reúne tres decisiones y aplica un quórum configurable. |
+| `confirm_three_nodes` | Reúne decisiones locales y aplica un quórum configurable. |
+| `NodeServer` / `NodeConfig` | Expone un nodo HTTP que verifica solicitudes firmadas y nonce único. |
+| `confirm_over_network` | Consulta los tres nodos en paralelo, verifica respuestas y aplica 2-de-3. |
 | Perfiles | Permiten activar reglas según tipo de proyecto o sistema de IA. |
 | Ledger futuro | Persistirá sobres y receipts para auditoría e investigación de fallos. |
 
@@ -74,7 +76,27 @@ Cada nodo recibe el mismo `envelope_id` y emite una decisión independiente. Con
                     +------------------+
 ```
 
-El módulo no simula una red ni afirma tolerancia bizantina. En esta fase representa el contrato de decisión y el quórum; la comunicación autenticada, la rotación de claves, la resistencia a nodos maliciosos y el almacenamiento inmutable son ampliaciones planificadas.
+El módulo de compatibilidad `confirm_three_nodes` no simula una red. Para una confirmación de red se utilizan `NodeServer` y `confirm_over_network`: cada nodo recibe una petición firmada, rechaza nonces repetidos o solicitudes caducadas, valida el sobre y firma la respuesta. El transporte de desarrollo es HTTP local; en producción debe envolverse en TLS y conectarse a tres procesos o máquinas independientes con secretos rotados. La resistencia bizantina y el almacenamiento inmutable siguen fuera del alcance de esta release.
+
+### Confirmación distribuida por 3 nodos
+
+```python
+from oss_compass import NodeConfig, NodeServer, confirm_over_network
+
+servers = [
+    NodeServer(NodeConfig(node, "127.0.0.1", 0, f"secret-{node}"))
+    for node in ("node-a", "node-b", "node-c")
+]
+configs = tuple(server.start() for server in servers)
+try:
+    receipt = confirm_over_network(envelope, configs)
+    assert receipt.accepted  # 2 de 3 como mínimo; 3 de 3 en el caso normal
+finally:
+    for server in servers:
+        server.stop()
+```
+
+La suite cubre aceptación 3-de-3, divergencia de un nodo, pérdida de un nodo, firma inválida y replay de nonce. No se deben reutilizar estas claves de fixture en producción.
 
 ## Universalidad y perfiles
 
