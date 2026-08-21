@@ -13,3 +13,4 @@
 - [x] Publicar solo cambios verificados y documentar limitaciones reales.
 - [x] Añadir OpenSSF Scorecard con SARIF y badge verificable.
 - [x] Activar alertas de vulnerabilidades y actualizaciones de seguridad de Dependabot.
+- [ ] Corregir el SHA inexistente de Harden Runner en Scorecard y verificar una ejecución verde.
