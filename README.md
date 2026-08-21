@@ -4,6 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Security](https://img.shields.io/badge/security-policy-brightgreen.svg)](SECURITY.md)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/belentani7/oss-compass/badge)](https://scorecard.dev/viewer/?uri=github.com/belentani7/oss-compass)
 
 **OSS Compass** es una implementación inicial del **PVC-U (Protocolo Universal de Validación)**: una capa agnóstica de tecnología para validar datos, respuestas de IA y acciones antes de aceptarlas, dejando un sobre verificable y un resultado auditable.
 

@@ -25,3 +25,12 @@ Todos los cambios relevantes de OSS Compass se documentarán aquí.
 ### Nota de seguridad
 
 El transporte de desarrollo usa HTTP local. Producción debe usar TLS, secretos externos y tres procesos o máquinas independientes.
+
+## [0.6.0] - 2026-08-21
+
+### Añadido
+
+- Workflow de OpenSSF Scorecard con resultados SARIF y publicación de evidencia.
+- Badge de Scorecard en el README.
+- Alertas de vulnerabilidades y actualizaciones de seguridad de Dependabot activadas en GitHub.
+- Metadatos de paquete actualizados para reflejar la confirmación HTTP firmada de tres nodos.

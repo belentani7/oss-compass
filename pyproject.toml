@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oss-compass"
-version = "0.1.0"
-description = "Universal validation envelopes with auditable 2-of-3 node confirmation."
+version = "0.5.0"
+description = "PVC-U validation envelopes with signed HTTP 2-of-3 confirmation across three nodes."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
