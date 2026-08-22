@@ -2,6 +2,20 @@
 
 Todos los cambios relevantes de OSS Compass se documentarán aquí.
 
+## [0.7.0] - 2026-08-22
+
+### Añadido
+
+- PVC-U v2 con firmas Ed25519 en solicitudes y respuestas de confirmación HTTP.
+- Allow-list de coordinadores confiables, nonce anti-replay acotado y límite explícito de tamaño de solicitud.
+- `ValidationLedger`, verificación offline de cadena y comando `oss-compass ledger-verify`.
+- Guía operativa de gestión, rotación y revocación de claves.
+- Regresiones para firma, coordinador no confiable, manipulación de ledger y reordenación de entradas.
+
+### Compatibilidad
+
+- El transporte HMAC v1 sigue disponible para consumidores existentes; las integraciones nuevas deben preferir PVC-U v2.
+
 ## [0.1.0] - 2026-08-16
 
 ### Añadido

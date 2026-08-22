@@ -12,17 +12,19 @@
 
 ## Qué incluye esta versión
 
-La primera versión implementa un núcleo pequeño y componible. Calcula un hash estable del payload, ejecuta reglas declarativas, genera un `ValidationEnvelope` con resultados y permite confirmar el sobre con **tres nodos independientes**, usando por defecto un quórum de **2 de 3**. La confirmación de red usa HTTP, HMAC-SHA256, nonce anti-replay, ventana de tiempo, verificación de identidad del nodo y firma de respuesta. La confirmación es una barrera de decisión; no sustituye la gestión externa de secretos, el transporte TLS en producción ni la revisión humana en operaciones de alto riesgo.
+La versión actual implementa un núcleo pequeño y componible. Calcula un hash estable del payload, ejecuta reglas declarativas, genera un `ValidationEnvelope` con resultados y permite confirmar el sobre con **tres nodos independientes**, usando por defecto un quórum de **2 de 3**. Conserva el transporte HMAC v1 por compatibilidad y añade PVC-U v2 con firmas **Ed25519**, lista explícita de coordinadores confiables, nonce anti-replay acotado, ventana temporal, respuestas firmadas y un ledger local encadenado por hash. Ed25519 permite que los nodos verifiquen una solicitud sin conocer la clave privada del coordinador [1]. La confirmación es una barrera de decisión; no sustituye TLS, almacenamiento seguro de claves, procesos independientes ni revisión humana en operaciones de alto riesgo.
 
 | Componente | Responsabilidad |
 |---|---|
 | `ValidationEnvelope` | Identifica el sujeto, perfil, hash del payload, reglas y resultados. |
 | `ValidationResult` | Expresa código PVC, esfera, estado y mensaje accionable. |
 | `confirm_three_nodes` | Reúne decisiones locales y aplica un quórum configurable. |
-| `NodeServer` / `NodeConfig` | Expone un nodo HTTP que verifica solicitudes firmadas y nonce único. |
-| `confirm_over_network` | Consulta los tres nodos en paralelo, verifica respuestas y aplica 2-de-3. |
+| `NodeServer` / `NodeConfig` | Transporte HMAC v1 para compatibilidad y pruebas locales. |
+| `Ed25519NodeServer` / `SignedNodeConfig` | Nodo PVC-U v2 con clave privada propia y allow-list de claves públicas de coordinadores. |
+| `confirm_over_network` | Cliente HMAC v1 que consulta tres nodos y aplica 2-de-3. |
+| `confirm_over_ed25519_network` | Cliente PVC-U v2 que verifica respuestas Ed25519 y aplica 2-de-3. |
+| `ValidationLedger` | Cadena NDJSON append-only de receipts con verificación offline del head hash. |
 | Perfiles | Permiten activar reglas según tipo de proyecto o sistema de IA. |
-| Ledger futuro | Persistirá sobres y receipts para auditoría e investigación de fallos. |
 
 ## Inicio rápido
 
@@ -77,7 +79,7 @@ Cada nodo recibe el mismo `envelope_id` y emite una decisión independiente. Con
                     +------------------+
 ```
 
-El módulo de compatibilidad `confirm_three_nodes` no simula una red. Para una confirmación de red se utilizan `NodeServer` y `confirm_over_network`: cada nodo recibe una petición firmada, rechaza nonces repetidos o solicitudes caducadas, valida el sobre y firma la respuesta. El transporte de desarrollo es HTTP local; en producción debe envolverse en TLS y conectarse a tres procesos o máquinas independientes con secretos rotados. La resistencia bizantina y el almacenamiento inmutable siguen fuera del alcance de esta release.
+El módulo de compatibilidad `confirm_three_nodes` no simula una red. `NodeServer` y `confirm_over_network` mantienen la versión HMAC v1. Para integraciones nuevas, PVC-U v2 usa `Ed25519NodeServer` y `confirm_over_ed25519_network`: el coordinador firma con su clave privada, cada nodo acepta solo coordinadores configurados mediante clave pública, y las respuestas se verifican con la clave pública propia del nodo. El transporte de desarrollo sigue siendo HTTP local; en producción debe envolverse en TLS y conectar tres procesos o máquinas independientes. La resistencia bizantina, el descubrimiento de nodos, la rotación automática y el almacenamiento inmutable quedan fuera del alcance de esta release.
 
 ### Confirmación distribuida por 3 nodos
 
@@ -97,7 +99,58 @@ finally:
         server.stop()
 ```
 
-La suite cubre aceptación 3-de-3, divergencia de un nodo, pérdida de un nodo, firma inválida y replay de nonce. No se deben reutilizar estas claves de fixture en producción.
+La suite cubre aceptación 3-de-3, divergencia de un nodo, pérdida de un nodo, firma inválida, replay de nonce, coordinador no confiable, manipulación del ledger y reordenación de entradas. No se deben reutilizar claves de fixture en producción.
+
+### PVC-U v2: firmas Ed25519 y confianza explícita
+
+```python
+from oss_compass import (
+    CoordinatorIdentity,
+    Ed25519NodeServer,
+    SignedNodeConfig,
+    confirm_over_ed25519_network,
+    generate_keypair,
+)
+
+coordinator_private, coordinator_public = generate_keypair()
+coordinator = CoordinatorIdentity("release-coordinator", coordinator_private)
+servers = []
+for node_id in ("node-a", "node-b", "node-c"):
+    node_private, _node_public = generate_keypair()
+    server = Ed25519NodeServer(
+        SignedNodeConfig(node_id, "127.0.0.1", 0, node_private, {"release-coordinator": coordinator_public})
+    )
+    server.start()
+    servers.append(server)
+try:
+    receipt = confirm_over_ed25519_network(envelope, coordinator, tuple(server.endpoint() for server in servers))
+    assert receipt.accepted
+finally:
+    for server in servers:
+        server.stop()
+```
+
+Las claves privadas se generan y almacenan fuera del repositorio. La aplicación solo necesita distribuir las claves públicas de coordinadores y nodos por un canal autenticado. Consulta [KEY_MANAGEMENT.md](KEY_MANAGEMENT.md) antes de operar el protocolo v2.
+
+### Ledger verificable
+
+`ValidationLedger` encadena cada decisión con SHA-256; SHA-256 es un mínimo recomendado por NIST para nuevos protocolos que requieren interoperabilidad [2]. El ledger detecta modificación, reordenación, inserción o truncamiento cuando se compara contra un head hash confiable almacenado fuera del archivo.
+
+```python
+from pathlib import Path
+from oss_compass import ValidationLedger
+
+ledger = ValidationLedger()
+entry = ledger.append(envelope, receipt)
+Path("receipts.ndjson").write_text(ledger.to_ndjson(), encoding="utf-8")
+assert ledger.verify(expected_head_hash=entry.entry_hash).valid
+```
+
+```bash
+oss-compass ledger-verify receipts.ndjson --head "<head-hash-confiable>" --json
+```
+
+El ledger es local y append-only a nivel de formato, no una base de datos distribuida ni un registro inmutable. Ancla periódicamente el `head_hash` en un sistema independiente de control de cambios, almacenamiento WORM o servicio de transparencia según el riesgo.
 
 ## Universalidad y perfiles
 
@@ -116,6 +169,12 @@ Consulta [CONTRIBUTING.md](CONTRIBUTING.md), abre una issue reproducible o propo
 ## Licencia
 
 Publicado bajo la licencia [MIT](LICENSE).
+
+## Referencias
+
+[1] [Cryptography — Ed25519 signing](https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ed25519/)
+
+[2] [NIST — Policy on Hash Functions](https://csrc.nist.gov/projects/hash-functions/nist-policy-on-hash-functions)
 
 ## Auditoría 3×3 por cambio
 

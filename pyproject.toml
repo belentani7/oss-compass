@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oss-compass"
-version = "0.6.0"
-description = "PVC-U validation envelopes with signed HTTP 2-of-3 confirmation across three nodes."
+version = "0.7.0"
+description = "PVC-U validation envelopes with Ed25519-signed 2-of-3 confirmation and a verifiable audit ledger."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Belentani" }]
 keywords = ["validation", "ai-safety", "audit", "distributed-systems", "open-source"]
 classifiers = ["Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "License :: OSI Approved :: MIT License"]
-dependencies = []
+dependencies = ["cryptography>=42.0"]
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]

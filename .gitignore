@@ -7,3 +7,8 @@ dist/
 build/
 .coverage
 htmlcov/
+*.ledger.ndjson
+*.private
+*.ed25519
+*.pem
+*.key
