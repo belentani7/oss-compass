@@ -1,13 +1,9 @@
 name: Deploy project landing page
 
+# GitHub Pages must first be enabled in repository Settings by an administrator.
+# This workflow is manual until that prerequisite exists; otherwise GitHub rejects
+# the deployment token and produces a misleading failing check on every docs push.
 on:
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - 'docs/**'
-      - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
 permissions:
