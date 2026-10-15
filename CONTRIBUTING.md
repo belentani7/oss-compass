@@ -1,4 +1,4 @@
-Contributing to Belentani Project
+# Contributing to Belentani Project
 
 ## Getting Started
 

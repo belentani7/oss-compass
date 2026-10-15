@@ -2,24 +2,16 @@
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities via email to belentani7pedro@gmail.com.
+If you discover a security vulnerability, please do not create a public issue. Instead, email the maintainers at **belentani7pedro@gmail.com**.
 
-## Code Scanning
+## Supported Versions
 
-This project uses GitHub CodeQL for automated security scanning. All security issues detected by CodeQL will be addressed with priority.
+Only the latest released version of this project is actively supported.
 
-## Dependabot
+## Scope
 
-Dependabot alerts security vulnerabilities in dependencies. Dependabot security updates will be accepted via Pull Request.
+Vulnerabilities affecting the codebase or its dependencies are in scope. Issues related to third-party services are the responsibility of their respective maintainers.
 
-## Secret Protection
+## Disclosure Policy
 
-GitHub Secret Protection scans for hardcoded secrets. Do not commit API keys, tokens, or passwords to this repository.
-
-## Advanced Security
-
-Enable GitHub Advanced Security for:
-- Dependabot alerts
-- CodeQL analysis
-- Secret scanning
-- Push protection
+We ask that you report vulnerabilities privately and allow us reasonable time to address them before making any public disclosure.
