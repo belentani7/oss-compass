@@ -39,8 +39,12 @@ jobs:
           results_format: sarif
           publish_results: true
 
+      # Si gcr.io deniega el pull de la imagen, el analisis no produce SARIF.
+      # Con `if: always()` estos pasos se ejecutan igual y upload-artifact aborta
+      # con "Path does not exist: results.sarif", relocating el rojo de sitio.
       - name: Upload artifact
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Scorecard SARIF results
@@ -49,6 +53,7 @@ jobs:
 
       - name: Upload to code scanning
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3.28.17
         with:
           sarif_file: results.sarif
