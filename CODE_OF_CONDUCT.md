@@ -1,5 +1,9 @@
-# Código de conducta
+# Contributor Covenant Code of Conduct
 
-Nos comprometemos a ofrecer una comunidad abierta, respetuosa y libre de acoso. Se esperan comunicación constructiva, revisión técnica basada en evidencia y respeto por distintas experiencias y niveles de conocimiento.
+This project adopts the Contributor Covenant.
 
-No se toleran ataques personales, discriminación, amenazas, publicación de información privada ni interrupciones deliberadas. Los mantenedores pueden moderar, editar o cerrar contribuciones que incumplan estas normas.
+- Be respectful and constructive.
+- No harassment, discrimination, or attacks.
+- Report issues via private message to belentani7pedro@gmail.com.
+
+Adapted from https://www.contributor-covenant.org
