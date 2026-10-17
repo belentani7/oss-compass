@@ -1,0 +1,55 @@
+name: Reportar un fallo
+description: Abre un issue para reproducir un fallo en belentani7/oss-compass
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportar. Un informe util incluye pasos de reproduccion exactos.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Que ocurre
+      description: Que esperabas y que obtuviste.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para reproducir
+      placeholder: |
+        1. Abrir ...
+        2. Pulsar ...
+        3. Ver error
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: v0.1.0 o commit SHA
+    validations:
+      required: true
+
+  - type: dropdown
+    id: env
+    attributes:
+      label: Entorno
+      options:
+        - Produccion
+        - Local
+        - Otro
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Registros o traza
+      render: text
+      description: No incluyas claves, tokens ni datos personales.
+    validations:
+      required: false
