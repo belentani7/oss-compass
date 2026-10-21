@@ -230,3 +230,10 @@ Este mecanismo no marca automáticamente todas las líneas como aprobadas: requi
 El gate admite auditorías reales de entre una y **5.000 líneas modificadas por cambio**. Cada línea genera un registro independiente con número de línea, hash de contenido, tres nodos y tres niveles. El informe no se basa en una muestra: evalúa la colección completa y solo devuelve `passed=True` cuando las 5.000 líneas, si existen, tienen 10/10.
 
 El límite protege el tamaño y la legibilidad del informe. Un cambio de 5.001 líneas se rechaza y debe dividirse en cambios auditables más pequeños. La puntuación 10/10 representa que los tres nodos han aportado verificaciones positivas para integridad, política y riesgo; no debe interpretarse como una garantía absoluta de seguridad ni reemplaza revisión humana especializada.
+
+
+## Seguridad del nodo PVC-U en red
+
+El servidor de confirmación exige solicitudes HMAC válidas y con marca de tiempo vigente. Una solicitud no autenticada **no** consume ahora memoria en el registro de nonces. Los nonces antiguos caducan y se eliminan; cada cuerpo POST queda limitado a **64 KiB** y se rechazan fechas no finitas. Las pruebas se encuentran en `tests/test_network_limits.py`.
+
+**Importante:** las solicitudes usan HTTP con HMAC, que verifica integridad/autenticidad a nivel de mensaje, pero **no cifra los datos en tránsito**. No expongas los nodos fuera de un entorno de laboratorio o red privada sin TLS/mTLS, controles de IP, gestión de secretos y límites de conexiones revisados. El almacén de nonces sigue siendo temporal y en memoria; reiniciar un nodo reinicia su historial de replay.
