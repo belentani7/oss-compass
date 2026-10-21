@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import hashlib
 import json
+import math
 import secrets
 import threading
 import time
@@ -13,6 +14,8 @@ from typing import Any, Callable
 from urllib import request
 
 from .pvcu import ConfirmationReceipt, NodeConfirmation, ValidationEnvelope
+
+MAX_CONFIRMATION_BYTES = 65536
 
 
 @dataclass(frozen=True)
@@ -30,7 +33,7 @@ class NodeServer:
         self.config = config
         self.validator = validator or self._default_validator
         self.max_clock_skew = max_clock_skew
-        self._seen_nonces: set[str] = set()
+        self._seen_nonces: dict[str, float] = {}
         self._lock = threading.Lock()
         parent = self
 
@@ -41,6 +44,9 @@ class NodeServer:
                     return
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= MAX_CONFIRMATION_BYTES:
+                        self.send_error(413, "confirmation request size invalid")
+                        return
                     body = json.loads(self.rfile.read(length).decode("utf-8"))
                     response = parent._handle(body)
                     encoded = json.dumps(response, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -71,15 +77,30 @@ class NodeServer:
             raise ValueError("invalid confirmation request fields")
         if body["node_id"] != self.config.node_id:
             raise ValueError("wrong node destination")
-        if abs(time.time() - float(body["timestamp"])) > self.max_clock_skew:
+        try:
+            timestamp = float(body["timestamp"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid confirmation timestamp") from exc
+        if not math.isfinite(timestamp) or abs(time.time() - timestamp) > self.max_clock_skew:
             raise ValueError("stale confirmation request")
-        with self._lock:
-            if body["nonce"] in self._seen_nonces:
-                raise ValueError("replayed confirmation request")
-            self._seen_nonces.add(body["nonce"])
+        nonce = body["nonce"]
+        if not isinstance(nonce, str) or not 16 <= len(nonce) <= 128:
+            raise ValueError("invalid confirmation nonce")
         unsigned = {key: body[key] for key in ("node_id", "envelope", "nonce", "timestamp")}
-        if not hmac.compare_digest(body["signature"], sign(self.config.secret, unsigned)):
+        if not isinstance(body["signature"], str) or not hmac.compare_digest(
+            body["signature"], sign(self.config.secret, unsigned)
+        ):
             raise ValueError("invalid request signature")
+        # Store replay state ONLY after authenticating the request. Prune expired
+        # nonces to prevent unbounded memory growth in a long-lived node.
+        with self._lock:
+            cutoff = time.time() - self.max_clock_skew
+            for used_nonce, seen_at in list(self._seen_nonces.items()):
+                if seen_at < cutoff:
+                    del self._seen_nonces[used_nonce]
+            if nonce in self._seen_nonces:
+                raise ValueError("replayed confirmation request")
+            self._seen_nonces[nonce] = time.time()
         accepted, reason = self.validator(body["envelope"])
         response = {"node_id": self.config.node_id, "envelope_id": body["envelope"].get("envelope_id", ""), "accepted": accepted, "reason": reason, "nonce": body["nonce"], "timestamp": time.time()}
         response["signature"] = sign(self.config.secret, response)
