@@ -56,7 +56,9 @@ class NodeServer:
                     self.end_headers()
                     self.wfile.write(encoded)
                 except Exception as exc:  # the node must return a signed rejection, not crash
-                    self.send_error(400, str(exc))
+                    # Do not reflect attacker-controlled request fragments or
+                    # exception details into the HTTP response.
+                    self.send_error(400, "invalid confirmation request")
 
             def log_message(self, *_args: Any) -> None:
                 return
@@ -72,11 +74,15 @@ class NodeServer:
         return (valid, "envelope verified" if valid else "envelope validation failed")
 
     def _handle(self, body: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("confirmation request must be an object")
         required = {"node_id", "envelope", "nonce", "timestamp", "signature"}
         if set(body) != required:
             raise ValueError("invalid confirmation request fields")
         if body["node_id"] != self.config.node_id:
             raise ValueError("wrong node destination")
+        if not isinstance(body["envelope"], dict):
+            raise ValueError("invalid confirmation envelope")
         try:
             timestamp = float(body["timestamp"])
         except (TypeError, ValueError) as exc:
