@@ -146,7 +146,7 @@ class ValidationLedger:
             if path.stat().st_size:
                 with path.open("rb") as handle:
                     handle.seek(-1, 2)
-                    if handle.read(1) != b"\\n":
+                    if handle.read(1) != b"\n":
                         raise ValueError("persisted ledger must end with a newline")
 
         missing = self._entries[start:]
