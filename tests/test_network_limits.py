@@ -109,3 +109,30 @@ def test_http_handler_rejects_oversized_confirmation_before_reading():
         conn.close()
     finally:
         server.stop()
+
+
+def test_nonce_cache_fails_closed_at_capacity_and_reclaims_expired_entries(monkeypatch):
+    # Use a tiny configured limit so the failure mode can be exercised cheaply.
+    monkeypatch.setattr("oss_compass.network.MAX_RECENT_NONCES", 2)
+    server = NodeServer(NodeConfig("node-a", "127.0.0.1", 0, "test-key"))
+    try:
+        first = request_body(server, nonce="first-unique-nonce-01")
+        second = request_body(server, nonce="second-unique-nonce-02")
+        third = request_body(server, nonce="third-unique-nonce-03")
+        assert server._handle(first)["accepted"] is True
+        assert server._handle(second)["accepted"] is True
+
+        # Authenticated bursts cannot grow memory by displacing live replay evidence.
+        with pytest.raises(ValueError, match="capacity"):
+            server._handle(third)
+        assert len(server._seen_nonces) == 2
+        with pytest.raises(ValueError, match="replayed"):
+            server._handle(first)
+
+        # Expired records are reclaimed before admission, without weakening replay.
+        server._seen_nonces[first["nonce"]] = time.time() - 1000
+        assert server._handle(third)["accepted"] is True
+        assert first["nonce"] not in server._seen_nonces
+        assert len(server._seen_nonces) == 2
+    finally:
+        server.stop()
