@@ -16,6 +16,7 @@ from urllib import request
 from .pvcu import ConfirmationReceipt, NodeConfirmation, ValidationEnvelope
 
 MAX_CONFIRMATION_BYTES = 65536
+MAX_RECENT_NONCES = 10000  # Fail closed during bursts; never evict unexpired replay evidence.
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,8 @@ class NodeServer:
                     del self._seen_nonces[used_nonce]
             if nonce in self._seen_nonces:
                 raise ValueError("replayed confirmation request")
+            if len(self._seen_nonces) >= MAX_RECENT_NONCES:
+                raise ValueError("replay protection capacity reached")
             self._seen_nonces[nonce] = time.time()
         accepted, reason = self.validator(body["envelope"])
         response = {"node_id": self.config.node_id, "envelope_id": body["envelope"].get("envelope_id", ""), "accepted": accepted, "reason": reason, "nonce": body["nonce"], "timestamp": time.time()}
