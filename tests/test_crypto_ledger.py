@@ -66,3 +66,47 @@ def test_ledger_rejects_invalid_entry_format(tmp_path) -> None:
     path.write_text('{"sequence":"not-an-int"}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="invalid ledger entry"):
         ValidationLedger.from_ndjson(path)
+
+
+def test_ledger_append_to_persists_incremental_suffix_and_is_idempotent(tmp_path) -> None:
+    envelope, receipt = envelope_and_receipt()
+    path = tmp_path / "nested" / "ledger.ndjson"
+    ledger = ValidationLedger()
+    first = ledger.append(envelope, receipt, created_at=1.0)
+
+    ledger.append_to(path)
+    first_version = path.read_bytes()
+    ledger.append_to(path)
+    assert path.read_bytes() == first_version
+
+    second = ledger.append(envelope, receipt, created_at=2.0)
+    ledger.append_to(path)
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 2
+    assert ValidationLedger.from_ndjson(path).verify(expected_head_hash=second.entry_hash).valid
+    assert first.entry_hash != second.entry_hash
+
+
+def test_ledger_append_to_rejects_stale_or_divergent_history_without_writing(tmp_path) -> None:
+    envelope, receipt = envelope_and_receipt()
+    path = tmp_path / "ledger.ndjson"
+    original = ValidationLedger()
+    original.append(envelope, receipt, created_at=1.0)
+    original.append_to(path)
+
+    stale = ValidationLedger.from_ndjson(path)
+    original.append(envelope, receipt, created_at=2.0)
+    original.append_to(path)
+    contents = path.read_bytes()
+
+    stale.append(envelope, receipt, created_at=3.0)
+    with pytest.raises(ValueError, match="diverges"):
+        stale.append_to(path)
+    assert path.read_bytes() == contents
+
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["created_at"] = 999.0
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    tampered = path.read_bytes()
+    with pytest.raises(ValueError, match="invalid on-disk"):
+        original.append_to(path)
+    assert path.read_bytes() == tampered
