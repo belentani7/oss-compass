@@ -124,12 +124,35 @@ class ValidationLedger:
         return "".join(json.dumps(entry.to_dict(), sort_keys=True, separators=(",", ":")) + "\n" for entry in self._entries)
 
     def append_to(self, path: Path) -> None:
+        """Persist only entries not already on disk, rejecting divergent history.
+
+        This method is safe for repeated sequential calls, not concurrent
+        writers. Production writers must coordinate file access externally.
+        """
         verification = self.verify()
         if not verification.valid:
             raise ValueError("cannot export an invalid ledger")
+
+        path = Path(path)
+        if path.exists():
+            stored = self.from_ndjson(path)
+            if not stored.verify().valid:
+                raise ValueError("cannot append to an invalid on-disk ledger")
+            persisted = stored.entries
+            if (
+                len(persisted) > len(self._entries)
+                or tuple(self._entries[: len(persisted)]) != persisted
+            ):
+                raise ValueError("on-disk ledger diverges from in-memory chain")
+            pending = self._entries[len(persisted) :]
+        else:
+            pending = self._entries
+
+        if not pending:
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            for entry in self._entries:
+            for entry in pending:
                 handle.write(json.dumps(entry.to_dict(), sort_keys=True, separators=(",", ":")) + "\n")
 
     @classmethod
