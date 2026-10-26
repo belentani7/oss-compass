@@ -110,3 +110,48 @@ def test_node_request_size_limit_fails_closed() -> None:
     finally:
         for server in servers:
             server.stop()
+
+
+def test_nonce_capacity_does_not_reopen_replay_window() -> None:
+    """Capacity exhaustion must reject new requests, never forget live nonces."""
+    coordinator_private, coordinator_public = generate_keypair()
+    node_private, _node_public = generate_keypair()
+    server = Ed25519NodeServer(
+        SignedNodeConfig("node-a", "127.0.0.1", 0, node_private, {"coordinator": coordinator_public}),
+        max_seen_nonces=2,
+    )
+    try:
+        envelope = validate({"id": "change-1"}, subject="change-1", rules=[required_fields("id")]).to_dict()
+
+        def signed_request(nonce: str, timestamp: float) -> dict:
+            unsigned = {
+                "protocol": PROTOCOL_VERSION,
+                "node_id": "node-a",
+                "coordinator_id": "coordinator",
+                "envelope": envelope,
+                "nonce": nonce,
+                "timestamp": timestamp,
+            }
+            return dict(unsigned, signature=sign_payload(coordinator_private, unsigned))
+
+        now = time.time()
+        first = signed_request("nonce-one", now - 30)
+        second = signed_request("nonce-two", now)
+        third = signed_request("nonce-three", now)
+        assert server._handle(first)["accepted"]
+        assert server._handle(second)["accepted"]
+        # A third signed request must fail closed instead of evicting nonce-one.
+        with pytest.raises(ValueError, match="capacity"):
+            server._handle(third)
+        assert len(server._seen_nonces) == 2
+        with pytest.raises(ValueError, match="replayed"):
+            server._handle(first)
+
+        # Expired evidence may be reclaimed without losing the other nonce.
+        server._seen_nonces["nonce-one"] = time.time() - server.max_clock_skew - 1
+        assert server._handle(third)["accepted"]
+        assert "nonce-one" not in server._seen_nonces
+        assert "nonce-two" in server._seen_nonces
+        assert len(server._seen_nonces) == 2
+    finally:
+        server.stop()
