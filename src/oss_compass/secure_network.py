@@ -115,14 +115,20 @@ class Ed25519NodeServer:
     def _remember_nonce(self, nonce: str, timestamp: float) -> None:
         now = time.time()
         with self._lock:
+            # Never evict a live nonce merely to admit another request:
+            # that would allow a previously authenticated request to be replayed.
+            cutoff = now - self.max_clock_skew
             while self._seen_nonces:
-                oldest, observed_at = next(iter(self._seen_nonces.items()))
-                if now - observed_at <= self.max_clock_skew and len(self._seen_nonces) < self.max_seen_nonces:
+                _oldest, observed_at = next(iter(self._seen_nonces.items()))
+                if observed_at >= cutoff:
                     break
-                self._seen_nonces.pop(oldest)
+                self._seen_nonces.popitem(last=False)
             if nonce in self._seen_nonces:
                 raise ValueError("replayed confirmation request")
-            self._seen_nonces[nonce] = timestamp
+            if len(self._seen_nonces) >= self.max_seen_nonces:
+                raise ValueError("replay protection capacity reached")
+            # Retention is measured from receipt time, not caller-supplied time.
+            self._seen_nonces[nonce] = now
 
     def _handle(self, body: dict[str, Any]) -> dict[str, Any]:
         required = {"protocol", "node_id", "coordinator_id", "envelope", "nonce", "timestamp", "signature"}
