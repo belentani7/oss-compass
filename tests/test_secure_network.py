@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import http.client
+import json
 import time
 
 import pytest
@@ -153,5 +155,115 @@ def test_nonce_capacity_does_not_reopen_replay_window() -> None:
         assert "nonce-one" not in server._seen_nonces
         assert "nonce-two" in server._seen_nonces
         assert len(server._seen_nonces) == 2
+    finally:
+        server.stop()
+
+
+@pytest.mark.parametrize("bad_timestamp", [float("nan"), float("inf"), float("-inf")])
+def test_signed_nonfinite_timestamp_is_rejected_before_nonce_cache(bad_timestamp: float) -> None:
+    coordinator_private, coordinator_public = generate_keypair()
+    node_private, _ = generate_keypair()
+    server = Ed25519NodeServer(SignedNodeConfig(
+        "node-a", "127.0.0.1", 0, node_private, {"coordinator": coordinator_public},
+    ))
+    try:
+        unsigned = {
+            "protocol": PROTOCOL_VERSION,
+            "node_id": "node-a",
+            "coordinator_id": "coordinator",
+            "envelope": {"envelope_id": "e", "payload_hash": "h", "results": [{"passed": True}]},
+            "nonce": "nonfinite-timestamp",
+            "timestamp": bad_timestamp,
+        }
+        with pytest.raises(ValueError, match="stale"):
+            server._handle(dict(unsigned, signature=sign_payload(coordinator_private, unsigned)))
+        assert not server._seen_nonces
+    finally:
+        server.stop()
+
+
+def test_malformed_authenticated_v2_fields_do_not_consume_replay_memory() -> None:
+    coordinator_private, coordinator_public = generate_keypair()
+    node_private, _ = generate_keypair()
+    server = Ed25519NodeServer(SignedNodeConfig(
+        "node-a", "127.0.0.1", 0, node_private, {"coordinator": coordinator_public},
+    ))
+    try:
+        base = {
+            "protocol": PROTOCOL_VERSION,
+            "node_id": "node-a",
+            "coordinator_id": "coordinator",
+            "envelope": {"envelope_id": "e", "payload_hash": "h", "results": [{"passed": True}]},
+            "nonce": "malformed-field-nonce",
+            "timestamp": time.time(),
+        }
+        for override in (
+            {"coordinator_id": ["coordinator"]},
+            {"nonce": ["malformed-field-nonce"]},
+            {"envelope": []},
+            {"timestamp": "not-a-timestamp"},
+        ):
+            unsigned = dict(base, **override)
+            with pytest.raises(ValueError):
+                server._handle(dict(unsigned, signature=sign_payload(coordinator_private, unsigned)))
+        with pytest.raises(ValueError, match="fields"):
+            server._handle(None)
+        signed = dict(base, signature=sign_payload(coordinator_private, base))
+        with pytest.raises(ValueError, match="signature"):
+            server._handle(dict(signed, signature=None))
+        assert not server._seen_nonces
+    finally:
+        server.stop()
+
+
+def test_v2_http_malformed_json_returns_400_without_leaking_error_details() -> None:
+    _, coordinator_public = generate_keypair()
+    node_private, _ = generate_keypair()
+    server = Ed25519NodeServer(SignedNodeConfig(
+        "node-a", "127.0.0.1", 0, node_private, {"coordinator": coordinator_public},
+    ))
+    server.start()
+    try:
+        untrusted = {
+            "protocol": PROTOCOL_VERSION,
+            "node_id": "node-a",
+            "coordinator_id": "untrusted",
+            "envelope": {},
+            "nonce": "http-malformed-nonce",
+            "timestamp": time.time(),
+            "signature": "invalid",
+        }
+        for raw in (b"null", json.dumps(untrusted).encode("utf-8")):
+            client = http.client.HTTPConnection(server.config.host, server.config.port, timeout=3)
+            try:
+                client.request("POST", "/v2/confirm", body=raw, headers={"Content-Type": "application/json"})
+                response = client.getresponse()
+                body = response.read().decode("utf-8")
+                assert response.status == 400
+                assert "untrusted coordinator" not in body
+                assert "TypeError" not in body
+            finally:
+                client.close()
+    finally:
+        server.stop()
+
+
+def test_v2_default_validator_handles_nonobject_result_entries() -> None:
+    coordinator_private, coordinator_public = generate_keypair()
+    node_private, _ = generate_keypair()
+    server = Ed25519NodeServer(SignedNodeConfig(
+        "node-a", "127.0.0.1", 0, node_private, {"coordinator": coordinator_public},
+    ))
+    try:
+        unsigned = {
+            "protocol": PROTOCOL_VERSION,
+            "node_id": "node-a",
+            "coordinator_id": "coordinator",
+            "envelope": {"envelope_id": "e", "payload_hash": "h", "results": ["not-a-result"]},
+            "nonce": "malformed-results",
+            "timestamp": time.time(),
+        }
+        response = server._handle(dict(unsigned, signature=sign_payload(coordinator_private, unsigned)))
+        assert response["accepted"] is False
     finally:
         server.stop()

@@ -8,6 +8,7 @@ rotation process; this module intentionally does not pretend to provide them.
 from __future__ import annotations
 
 import json
+import math
 import secrets
 import threading
 import time
@@ -96,8 +97,10 @@ class Ed25519NodeServer:
                     self.send_header("Cache-Control", "no-store")
                     self.end_headers()
                     self.wfile.write(encoded)
-                except (ValueError, json.JSONDecodeError) as exc:
-                    self.send_error(400, str(exc))
+                except Exception:
+                    # Never reflect request fields, parser exceptions, or validator
+                    # diagnostics to unauthenticated HTTP clients.
+                    self.send_error(400, "invalid confirmation request")
 
             def log_message(self, *_args: Any) -> None:
                 return
@@ -109,10 +112,10 @@ class Ed25519NodeServer:
     @staticmethod
     def _default_validator(envelope: dict[str, Any]) -> tuple[bool, str]:
         results = envelope.get("results", [])
-        valid = bool(envelope.get("envelope_id")) and bool(envelope.get("payload_hash")) and bool(results) and all(item.get("passed") is True for item in results)
+        valid = bool(envelope.get("envelope_id")) and bool(envelope.get("payload_hash")) and isinstance(results, list) and bool(results) and all(isinstance(item, dict) and item.get("passed") is True for item in results)
         return valid, "envelope verified" if valid else "envelope validation failed"
 
-    def _remember_nonce(self, nonce: str, timestamp: float) -> None:
+    def _remember_nonce(self, nonce: str) -> None:
         now = time.time()
         with self._lock:
             # Never evict a live nonce merely to admit another request:
@@ -132,24 +135,33 @@ class Ed25519NodeServer:
 
     def _handle(self, body: dict[str, Any]) -> dict[str, Any]:
         required = {"protocol", "node_id", "coordinator_id", "envelope", "nonce", "timestamp", "signature"}
-        if set(body) != required or body["protocol"] != PROTOCOL_VERSION:
+        if not isinstance(body, dict) or set(body) != required or body["protocol"] != PROTOCOL_VERSION:
             raise ValueError("invalid confirmation request fields")
         if body["node_id"] != self.config.node_id:
             raise ValueError("wrong node destination")
+        if not isinstance(body["envelope"], dict):
+            raise ValueError("invalid confirmation envelope")
+        nonce = body["nonce"]
+        if not isinstance(nonce, str) or not 1 <= len(nonce) <= 128:
+            raise ValueError("invalid confirmation nonce")
+        coordinator_id = body["coordinator_id"]
+        if not isinstance(coordinator_id, str) or not coordinator_id:
+            raise ValueError("invalid coordinator identity")
+        if not isinstance(body["signature"], str):
+            raise ValueError("invalid request signature")
         try:
             timestamp = float(body["timestamp"])
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("invalid request timestamp") from exc
-        if abs(time.time() - timestamp) > self.max_clock_skew:
+        if not math.isfinite(timestamp) or abs(time.time() - timestamp) > self.max_clock_skew:
             raise ValueError("stale confirmation request")
-        coordinator_id = body["coordinator_id"]
         coordinator_key = self.config.trusted_coordinators.get(coordinator_id)
         if coordinator_key is None:
             raise ValueError("untrusted coordinator")
         unsigned = {key: body[key] for key in required - {"signature"}}
         if not verify_payload(coordinator_key, unsigned, body["signature"]):
             raise ValueError("invalid request signature")
-        self._remember_nonce(str(body["nonce"]), timestamp)
+        self._remember_nonce(nonce)
         accepted, reason = self.validator(body["envelope"])
         response = {
             "protocol": PROTOCOL_VERSION,
