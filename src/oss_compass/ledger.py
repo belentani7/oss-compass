@@ -124,12 +124,37 @@ class ValidationLedger:
         return "".join(json.dumps(entry.to_dict(), sort_keys=True, separators=(",", ":")) + "\n" for entry in self._entries)
 
     def append_to(self, path: Path) -> None:
+        """Append only entries not already persisted; refuse divergent history.
+
+        This is a single-writer operation, not an inter-process transaction.
+        Callers writing from multiple processes must coordinate file locking.
+        """
         verification = self.verify()
         if not verification.valid:
             raise ValueError("cannot export an invalid ledger")
+
+        start = 0
+        if path.exists():
+            # A syntactically valid NDJSON file can still contain a broken chain.
+            # Never extend one unless the entire persisted prefix matches.
+            persisted = self.from_ndjson(path)
+            if not persisted.verify().valid:
+                raise ValueError("cannot append to a corrupt ledger")
+            start = len(persisted.entries)
+            if start > len(self._entries) or persisted.entries != tuple(self._entries[:start]):
+                raise ValueError("cannot append to a divergent ledger")
+            if path.stat().st_size:
+                with path.open("rb") as handle:
+                    handle.seek(-1, 2)
+                    if handle.read(1) != b"\n":
+                        raise ValueError("persisted ledger must end with a newline")
+
+        missing = self._entries[start:]
+        if not missing:
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            for entry in self._entries:
+            for entry in missing:
                 handle.write(json.dumps(entry.to_dict(), sort_keys=True, separators=(",", ":")) + "\n")
 
     @classmethod

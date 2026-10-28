@@ -66,3 +66,61 @@ def test_ledger_rejects_invalid_entry_format(tmp_path) -> None:
     path.write_text('{"sequence":"not-an-int"}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="invalid ledger entry"):
         ValidationLedger.from_ndjson(path)
+
+
+
+def test_export_is_idempotent_and_only_writes_new_entries(tmp_path) -> None:
+    envelope, receipt = envelope_and_receipt()
+    ledger = ValidationLedger()
+    first = ledger.append(envelope, receipt, created_at=1.0)
+    path = tmp_path / "persisted.ndjson"
+
+    ledger.append_to(path)
+    original = path.read_bytes()
+    ledger.append_to(path)
+    assert path.read_bytes() == original
+    assert ValidationLedger.from_ndjson(path).verify(expected_head_hash=first.entry_hash).valid
+
+    second = ledger.append(envelope, receipt, created_at=2.0)
+    ledger.append_to(path)
+    entries = ValidationLedger.from_ndjson(path)
+    assert len(entries.entries) == 2
+    assert entries.verify(expected_head_hash=second.entry_hash).valid
+    ledger.append_to(path)
+    assert len(ValidationLedger.from_ndjson(path).entries) == 2
+
+
+def test_export_rejects_divergent_or_tampered_persisted_chain(tmp_path) -> None:
+    envelope, receipt = envelope_and_receipt()
+    original = ValidationLedger()
+    original.append(envelope, receipt, created_at=1.0)
+    original.append(envelope, receipt, created_at=2.0)
+    path = tmp_path / "divergent.ndjson"
+    original.append_to(path)
+
+    competing = ValidationLedger()
+    competing.append(envelope, receipt, created_at=1.0)
+    competing.append(envelope, receipt, created_at=3.0)
+    persisted = path.read_bytes()
+    with pytest.raises(ValueError, match="divergent"):
+        competing.append_to(path)
+    assert path.read_bytes() == persisted
+
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    rows[0]["accepted"] = not rows[0]["accepted"]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    broken = path.read_bytes()
+    with pytest.raises(ValueError, match="corrupt"):
+        original.append_to(path)
+    assert path.read_bytes() == broken
+
+
+def test_export_refuses_to_join_an_unterminated_json_line(tmp_path) -> None:
+    envelope, receipt = envelope_and_receipt()
+    ledger = ValidationLedger()
+    ledger.append(envelope, receipt, created_at=1.0)
+    path = tmp_path / "unterminated.ndjson"
+    path.write_text(ledger.to_ndjson().rstrip("\n"))
+    ledger.append(envelope, receipt, created_at=2.0)
+    with pytest.raises(ValueError, match="newline"):
+        ledger.append_to(path)
