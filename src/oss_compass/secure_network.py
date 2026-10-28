@@ -163,6 +163,8 @@ class Ed25519NodeServer:
             raise ValueError("invalid request signature")
         self._remember_nonce(nonce)
         accepted, reason = self.validator(body["envelope"])
+        if type(accepted) is not bool or not isinstance(reason, str):
+            raise ValueError("validator must return a boolean decision and string reason")
         response = {
             "protocol": PROTOCOL_VERSION,
             "node_id": self.config.node_id,
@@ -224,7 +226,14 @@ def _request(endpoint: SignedNodeEndpoint, coordinator: CoordinatorIdentity, env
         raise ValueError("node response key fingerprint does not match endpoint")
     if not verify_payload(endpoint.public_key, result, signature):
         raise ValueError("invalid node response signature")
-    return NodeConfirmation(endpoint.node_id, envelope["envelope_id"], bool(result["accepted"]), signature, str(result["reason"]))
+    if (
+        type(result["accepted"]) is not bool
+        or not isinstance(result["reason"], str)
+        or type(result["timestamp"]) not in (int, float)
+        or not math.isfinite(result["timestamp"])
+    ):
+        raise ValueError("invalid node response types")
+    return NodeConfirmation(endpoint.node_id, envelope["envelope_id"], result["accepted"], signature, result["reason"])
 
 
 def confirm_over_ed25519_network(

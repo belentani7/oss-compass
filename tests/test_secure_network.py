@@ -267,3 +267,86 @@ def test_v2_default_validator_handles_nonobject_result_entries() -> None:
         assert response["accepted"] is False
     finally:
         server.stop()
+
+
+def test_v2_server_rejects_misconfigured_validator_vote_over_http() -> None:
+    coordinator_private, coordinator_public = generate_keypair()
+    node_private, _ = generate_keypair()
+    server = Ed25519NodeServer(
+        SignedNodeConfig("node-a", "127.0.0.1", 0, node_private, {"coordinator": coordinator_public}),
+        validator=lambda _envelope: ("false", "this is not a boolean vote"),
+    )
+    server.start()
+    try:
+        unsigned = {
+            "protocol": PROTOCOL_VERSION,
+            "node_id": "node-a",
+            "coordinator_id": "coordinator",
+            "envelope": {"envelope_id": "e", "payload_hash": "h", "results": [{"passed": True}]},
+            "nonce": "invalid-validator-vote",
+            "timestamp": time.time(),
+        }
+        body = dict(unsigned, signature=sign_payload(coordinator_private, unsigned))
+        client = http.client.HTTPConnection(server.config.host, server.config.port, timeout=3)
+        try:
+            client.request(
+                "POST", "/v2/confirm", body=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            response = client.getresponse()
+            response.read()
+            assert response.status == 400
+        finally:
+            client.close()
+    finally:
+        server.stop()
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("accepted", "false"),
+        ("accepted", 1),
+        ("reason", {"message": "rejected"}),
+        ("timestamp", float("nan")),
+    ],
+)
+def test_v2_client_rejects_signed_malformed_node_vote(monkeypatch, field, invalid) -> None:
+    from email.message import Message
+    from io import BytesIO
+
+    from oss_compass import key_fingerprint
+    from oss_compass.secure_network import SignedNodeEndpoint, _request
+
+    coordinator_private, _ = generate_keypair()
+    node_private, node_public = generate_keypair()
+    coordinator = CoordinatorIdentity("coordinator", coordinator_private)
+    endpoint = SignedNodeEndpoint("node-a", "127.0.0.1", 12345, node_public)
+    envelope = {"envelope_id": "e", "payload_hash": "h", "results": [{"passed": True}]}
+
+    class FakeResponse(BytesIO):
+        def __init__(self, body: bytes):
+            super().__init__(body)
+            self.headers = Message()
+            self.headers["Content-Type"] = "application/json"
+
+    def fake_urlopen(req, timeout):
+        assert timeout == 1
+        request_body = json.loads(req.data)
+        response = {
+            "protocol": PROTOCOL_VERSION,
+            "node_id": "node-a",
+            "node_key_fingerprint": key_fingerprint(node_public),
+            "envelope_id": envelope["envelope_id"],
+            "accepted": False,
+            "reason": "rejected",
+            "nonce": request_body["nonce"],
+            "timestamp": time.time(),
+        }
+        response[field] = invalid
+        response["signature"] = sign_payload(node_private, response)
+        return FakeResponse(json.dumps(response).encode("utf-8"))
+
+    monkeypatch.setattr("oss_compass.secure_network.request.urlopen", fake_urlopen)
+    with pytest.raises(ValueError, match="invalid node response types"):
+        _request(endpoint, coordinator, envelope, timeout=1)
